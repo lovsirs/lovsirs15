@@ -1,0 +1,429 @@
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+if getnamecallmethod then
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Pixeluted/adoniscries/main/Source.lua", true))()
+end
+
+local repo = 'https://raw.githubusercontent.com/alebinh60/asmobile/refs/heads/main/'
+
+local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ShowToggleFrameInKeybinds = true
+Library.ShowCustomCursor = true
+Library.NotifySide = "Right"
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Camera = Workspace.CurrentCamera
+
+local Window = Library:CreateWindow({
+    Title = "",
+    Footer = "amiri.win",
+    Icon = 241778280,
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+    Compact = true,
+    AutoShow = true,
+    MobileButtonsSide = "Left"
+})
+
+local plr = Players.LocalPlayer
+
+Library:Notify("amiri user! welcome " .. plr.DisplayName .. " (@" .. plr.Name .. ")", 10)
+
+local Tabs = {
+    Combat = Window:AddTab('Combat', 'target'),
+    Player = Window:AddTab('Player', 'users'),
+    Visual = Window:AddTab('Visual', 'eye'),
+    Character = Window:AddTab('Character', 'user'),
+    Misc = Window:AddTab('Misc', 'heart'),
+    ['UI Settings'] = Window:AddTab('UI Settings', 'settings'),
+}
+
+local Storage = { Connections = {} }
+
+local SilentAim = {
+    Enabled = false,
+    ShowFov = false,
+    Fov = 45,
+    HitPart = "Head",
+    WallCheck = false,
+    TeamCheck = false,
+}
+
+local FovGui = Instance.new("ScreenGui")
+FovGui.Name = "fov"
+FovGui.IgnoreGuiInset = true
+FovGui.ResetOnSpawn = false
+FovGui.DisplayOrder = 10000
+FovGui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+
+local Ring = Instance.new("Frame")
+Ring.Name = "ring"
+Ring.AnchorPoint = Vector2.new(0.5, 0.5)
+Ring.Position = UDim2.new(0.5, 0, 0.5, 0)
+Ring.Size = UDim2.fromOffset(SilentAim.Fov * 2, SilentAim.Fov * 2)
+Ring.BackgroundTransparency = 1
+Ring.BorderSizePixel = 0
+Ring.Visible = false
+Ring.Parent = FovGui
+
+local RingCorner = Instance.new("UICorner")
+RingCorner.CornerRadius = UDim.new(1, 0)
+RingCorner.Parent = Ring
+
+local RingStroke = Instance.new("UIStroke")
+RingStroke.Color = Color3.fromRGB(255, 255, 255)
+RingStroke.Thickness = 1
+RingStroke.Parent = Ring
+
+Library:OnUnload(function()
+    FovGui:Destroy()
+end)
+
+local function getTarget()
+    if not SilentAim.Enabled then return nil end
+
+    local center = Camera.ViewportSize / 2
+    local origin = Camera.CFrame.Position
+    local best, bestDist = nil, SilentAim.Fov
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == plr then continue end
+        if SilentAim.TeamCheck and p.Team and plr.Team and p.Team == plr.Team then continue end
+
+        local char = p.Character
+        if not char then continue end
+
+        local part = char:FindFirstChild(SilentAim.HitPart)
+        if not part then continue end
+
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then continue end
+
+        local state = char:FindFirstChild("State")
+        if state then
+            local down, dead = state:FindFirstChild("Down"), state:FindFirstChild("Dead")
+            if (down and down.Value) or (dead and dead.Value) then continue end
+        end
+
+        if SilentAim.WallCheck then
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = { plr.Character }
+            local result = Workspace:Raycast(origin, part.Position - origin, params)
+            if result and not result.Instance:IsDescendantOf(char) then continue end
+        end
+
+        local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
+        if not onScreen then continue end
+
+        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+        if dist <= bestDist then
+            bestDist = dist
+            best = p
+        end
+    end
+
+    return best
+end
+
+pcall(function()
+    local GunHandler = require(ReplicatedStorage.Modules.Guns.GunHandler)
+    local oldShoot = GunHandler.Shoot
+    GunHandler.Shoot = function(p1, p2, p3, p4, p5, p6, p7, p8)
+        if p1 == plr and SilentAim.Enabled and p4 then
+            local tgt = getTarget()
+            if tgt and tgt.Character then
+                local part = tgt.Character:FindFirstChild(SilentAim.HitPart)
+                if part then p4 = part.Position end
+            end
+        end
+        return oldShoot(p1, p2, p3, p4, p5, p6, p7, p8)
+    end
+end)
+
+local SilentGroup = Tabs.Combat:AddLeftGroupbox('Silent Aim')
+
+SilentGroup:AddToggle('SilentAimEnabled', {
+    Text = 'Enabled',
+    Default = false,
+    Callback = function(Value)
+        SilentAim.Enabled = Value
+    end
+})
+
+SilentGroup:AddToggle('SilentAimShowFov', {
+    Text = 'Show FOV Circle',
+    Default = false,
+    Callback = function(Value)
+        SilentAim.ShowFov = Value
+        Ring.Visible = Value
+    end
+})
+
+SilentGroup:AddSlider('SilentAimFov', {
+    Text = 'FOV Size',
+    Default = 45,
+    Min = 0,
+    Max = 800,
+    Rounding = 0,
+    Callback = function(Value)
+        SilentAim.Fov = Value
+        Ring.Size = UDim2.fromOffset(Value * 2, Value * 2)
+    end
+})
+
+SilentGroup:AddDropdown('SilentAimHitPart', {
+    Text = 'Hit Part',
+    Values = { "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso" },
+    Default = "Head",
+    Callback = function(Value)
+        SilentAim.HitPart = Value
+    end
+})
+
+SilentGroup:AddToggle('SilentAimWallCheck', {
+    Text = 'Wall Check',
+    Default = false,
+    Callback = function(Value)
+        SilentAim.WallCheck = Value
+    end
+})
+
+SilentGroup:AddToggle('SilentAimTeamCheck', {
+    Text = 'Team Check',
+    Default = false,
+    Callback = function(Value)
+        SilentAim.TeamCheck = Value
+    end
+})
+
+coroutine.wrap(function()
+    local MenuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
+    MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
+    MenuGroup:AddDropdown("NotificationSide", {
+        Values = { "Left", "Right" },
+        Default = "Right",
+        Text = "Notification Side",
+        Callback = function(Value)
+            Library:SetNotifySide(Value)
+        end,
+    })
+    MenuGroup:AddDropdown("DPIDropdown", {
+        Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
+        Default = "100%",
+        Text = "DPI Scale",
+        Callback = function(Value)
+            Value = Value:gsub("%%", "")
+            local DPI = tonumber(Value)
+            Library:SetDPIScale(DPI)
+        end,
+    })
+    MenuGroup:AddDivider()
+    MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+    MenuGroup:AddButton("Unload", function() Library:Unload() end)
+
+    getgenv().vu = game:GetService("VirtualUser")
+    getgenv().isAntiAfkEnabled = false
+    getgenv().antiAfkConnection = nil
+
+    MenuGroup:AddToggle('AntiAFKToggle', {
+        Text = 'Anti-AFK',
+        Default = false,
+        Tooltip = 'Prevent AFK timeout',
+        Callback = function(state)
+            getgenv().isAntiAfkEnabled = state
+            if getgenv().isAntiAfkEnabled then
+                getgenv().antiAfkConnection = Players.LocalPlayer.Idled:Connect(function()
+                    getgenv().vu:CaptureController()
+                    getgenv().vu:ClickButton2(Vector2.new())
+                end)
+            else
+                if getgenv().antiAfkConnection then
+                    getgenv().antiAfkConnection:Disconnect()
+                    getgenv().antiAfkConnection = nil
+                end
+            end
+        end,
+        Disabled = false,
+        Visible = true
+    })
+
+    MenuGroup:AddButton({
+        Text = 'Copy Job ID',
+        Func = function()
+            setclipboard(game.JobId)
+        end,
+        Tooltip = 'Copy the current server Job ID to clipboard',
+        DoubleClick = false,
+        Disabled = false,
+        Visible = true
+    })
+    MenuGroup:AddButton({
+        Text = 'Copy JS Join Script',
+        Func = function()
+            local jsScript = 'Roblox.GameLauncher.joinGameInstance(' .. game.PlaceId .. ', "' .. game.JobId .. '")'
+            setclipboard(jsScript)
+        end,
+        Tooltip = 'Copy the join script for the current server',
+        DoubleClick = false,
+        Disabled = false,
+        Visible = true
+    })
+    MenuGroup:AddInput('JobIdInput', {
+        Default = '',
+        Numeric = false,
+        Finished = true,
+        Text = '..JobId..',
+        Tooltip = 'Enter a Job ID to join a specific server',
+        Placeholder = 'Enter Job ID here',
+        ClearTextOnFocus = true,
+        Callback = function(Value)
+            game:GetService('TeleportService'):TeleportToPlaceInstance(game.PlaceId, Value, Players.LocalPlayer)
+        end,
+        Disabled = false,
+        Visible = true
+    })
+    MenuGroup:AddButton({
+        Text = 'Rejoin Server',
+        Func = function()
+            game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, Players.LocalPlayer)
+        end,
+        Tooltip = 'Rejoin the current server',
+        DoubleClick = false,
+        Disabled = false,
+        Visible = true
+    })
+
+    Library:SetWatermarkVisibility(true)
+    getgenv().amiri = {}
+    getgenv().amiri.WatermarkEnabled = true
+    getgenv().amiri.WatermarkShowFPS = true
+    getgenv().amiri.WatermarkShowGameName = false
+    getgenv().amiri.WatermarkShowUptime = false
+    getgenv().amiri.WatermarkShowExecutor = false
+    getgenv().amiri.WatermarkShowPing = true
+
+    local FrameTimer = tick()
+    local FrameCounter = 0
+    local FPS = 60
+    local StartTime = tick()
+
+    local function getExecutor()
+        if syn then return "Synapse X" end
+        if secure_call then return "ScriptWare" end
+        if identifyexecutor then return identifyexecutor() end
+        return "Unknown"
+    end
+
+    local MarketplaceService = game:GetService("MarketplaceService")
+    local function getGameName(placeId)
+        local success, result = pcall(function()
+            return MarketplaceService:GetProductInfo(placeId).Name
+        end)
+        return success and result or "Unknown Game"
+    end
+
+    local function updateWatermark()
+        FrameCounter += 1
+        if (tick() - FrameTimer) >= 1 then
+            FPS = FrameCounter
+            FrameTimer = tick()
+            FrameCounter = 0
+        end
+
+        local Ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+        local Executor = getExecutor()
+        local Uptime = math.floor(tick() - StartTime)
+        local UptimeFormatted = string.format("%02d:%02d", math.floor(Uptime / 60), Uptime % 60)
+        local GameName = getGameName(game.PlaceId)
+
+        local watermarkParts = {"amiri.win"}
+
+        if getgenv().amiri.WatermarkShowExecutor then
+            table.insert(watermarkParts, Executor)
+        end
+        if getgenv().amiri.WatermarkShowGameName then
+            table.insert(watermarkParts, string.format("%s (%d)", GameName, game.PlaceId))
+        end
+        if getgenv().amiri.WatermarkShowUptime then
+            table.insert(watermarkParts, string.format("Uptime: %s", UptimeFormatted))
+        end
+        if getgenv().amiri.WatermarkShowFPS then
+            table.insert(watermarkParts, string.format("FPS %d", math.floor(FPS)))
+        end
+        if getgenv().amiri.WatermarkShowPing then
+            table.insert(watermarkParts, string.format("%d ms", Ping))
+        end
+
+        Library:SetWatermark(table.concat(watermarkParts, " | "))
+        Library:SetWatermarkVisibility(getgenv().amiri.WatermarkEnabled)
+    end
+
+    local WatermarkConnection = RunService.RenderStepped:Connect(updateWatermark)
+
+    local WatermarkGroup = Tabs['UI Settings']:AddRightGroupbox('Watermark')
+
+    WatermarkGroup:AddToggle('WatermarkEnabled', {
+        Text = 'Enabled',
+        Default = true,
+        Callback = function(Value) getgenv().amiri.WatermarkEnabled = Value end
+    })
+    WatermarkGroup:AddToggle('WatermarkShowFPS', {
+        Text = 'Show FPS',
+        Default = true,
+        Callback = function(Value) getgenv().amiri.WatermarkShowFPS = Value end
+    })
+    WatermarkGroup:AddToggle('WatermarkShowGameName', {
+        Text = 'Show Game Name',
+        Default = false,
+        Callback = function(Value) getgenv().amiri.WatermarkShowGameName = Value end
+    })
+    WatermarkGroup:AddToggle('WatermarkShowUptime', {
+        Text = 'Show Uptime',
+        Default = false,
+        Callback = function(Value) getgenv().amiri.WatermarkShowUptime = Value end
+    })
+    WatermarkGroup:AddToggle('WatermarkShowExecutor', {
+        Text = 'Show Executor',
+        Default = false,
+        Callback = function(Value) getgenv().amiri.WatermarkShowExecutor = Value end
+    })
+    WatermarkGroup:AddToggle('WatermarkShowPing', {
+        Text = 'Show Ping',
+        Default = true,
+        Callback = function(Value) getgenv().amiri.WatermarkShowPing = Value end
+    })
+
+    Library.ToggleKeybind = Options.MenuKeybind
+
+    ThemeManager:SetLibrary(Library)
+    SaveManager:SetLibrary(Library)
+
+    SaveManager:IgnoreThemeSettings()
+    SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+
+    ThemeManager:SetFolder('amiri')
+    SaveManager:SetFolder('amiri/dahood')
+
+    SaveManager:BuildConfigSection(Tabs['UI Settings'])
+    ThemeManager:ApplyToTab(Tabs['UI Settings'])
+
+    SaveManager:LoadAutoloadConfig()
+    Library:OnUnload(function()
+        print('Unloaded!')
+        Library.Unloaded = true
+        for _, conn in ipairs(Storage.Connections) do
+            conn:Disconnect()
+        end
+    end)
+end)()
